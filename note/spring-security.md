@@ -975,6 +975,8 @@ public class LoginUser implements UserDetails {
 
 
 
+默認的 PasswordEncoder 需要在密碼前加上 `{加密類型}`
+
 ```
 java.lang.IllegalArgumentException: There is no PasswordEncoder mapped for the id "null"
 ```
@@ -982,3 +984,47 @@ java.lang.IllegalArgumentException: There is no PasswordEncoder mapped for the i
 若密碼為明文儲存，需要在實際密碼前帶有`{noop}`
 
 例如 原密碼欄位 `1234` -> 改成 `{noop}1234`
+
+
+
+##### 2.3.3.2、密碼加密儲存
+
+
+
+> 密碼明文儲存的話，如果數據庫密碼洩漏，那所有用戶的密碼也就洩漏了。
+
+
+
+一般使用 SpringSecurity 提供的 BCryptPasswordEncoder
+
+只要把 PasswordEncoder 對象注入到 Spring 容器中，SpringSecurity 就會使用它來進行密碼校驗
+
+SpringSecurity 要求這個配置類要繼承 WebSecurityConfigurerAdapter
+
+```java
+package com.example.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Bean
+	public PasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+}
+```
+
+
+
+TODO: DB 存 {noop}1234，登入頁密碼輸 1234 顯示 憑證錯誤
+
+```java
+2022-02-13 00:48:08.714  WARN 2680 --- [nio-8080-exec-2] o.s.s.c.bcrypt.BCryptPasswordEncoder     : Encoded password does not look like BCrypt
+```
+
