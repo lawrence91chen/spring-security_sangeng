@@ -1,0 +1,868 @@
+# Spring Security 從入門到精通
+
+## 課程介紹
+
+## 0、簡介
+
+## 1、快速入門
+
+### 1.1、準備工作
+
+1. 設置父工程、添加依賴
+
+   ```xml
+       <parent>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-parent</artifactId>
+           <version>2.6.3</version>
+       </parent>
+   
+       <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
+       <dependency>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-web</artifactId>
+       </dependency>
+       <!-- https://mvnrepository.com/artifact/org.projectlombok/lombok -->
+       <dependency>
+           <groupId>org.projectlombok</groupId>
+           <artifactId>lombok</artifactId>
+           <scope>provided</scope>
+           <optional>true</optional>
+       </dependency>
+   ```
+
+   
+
+2. 創建啟動類
+
+   ```java
+   @SpringBootApplication
+   public class BootApplication {
+   	public static void main(String[] args) {
+   		SpringApplication.run(BootApplication.class, args);
+   	}
+   }
+   ```
+
+   
+
+3. 創建 Controller
+
+   ```java
+   @RestController
+   public class HelloController {
+   
+   	@GetMapping("hello")
+   	public String hello() {
+   		return "hello";
+   	}
+   }
+   ```
+
+   
+
+### 1.2、引入 Spring Security
+
+
+
+```xml
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+```
+
+
+
+## 2、認證
+
+### 2.1、登入校驗流程
+
+### 2.2、原理初探
+
+### 2.3、解決問題
+
+#### 2.3.1、思路分析
+
+登入
+
+1. 自定義登入接口
+   - 生成 JWT
+   - 把用戶信息存入 redis 中
+2. 自定義 UserDetailService
+
+校驗
+
+1. 定義 JWT 認證過濾器
+   - 獲取 token
+   - 解析 token 獲取其中的 userId
+   - 從 redis 中獲取用戶信息
+   - 存入 SecurityContextHolder
+
+
+
+#### 2.3.2、準備工作
+
+1. 添加依賴
+
+   ```xml
+           <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-data-redis -->
+           <dependency>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-starter-data-redis</artifactId>
+           </dependency>
+           <!-- https://mvnrepository.com/artifact/com.alibaba/fastjson -->
+           <dependency>
+               <groupId>com.alibaba</groupId>
+               <artifactId>fastjson</artifactId>
+               <version>1.2.79</version>
+           </dependency>
+           <!-- https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt -->
+           <dependency>
+               <groupId>io.jsonwebtoken</groupId>
+               <artifactId>jjwt</artifactId>
+               <version>0.9.1</version>
+           </dependency>
+   ```
+
+   
+
+2. 添加 redis 相關配置
+
+   ```java
+   package com.example.utils;
+   
+   import com.alibaba.fastjson.JSON;
+   import com.alibaba.fastjson.parser.ParserConfig;
+   import com.alibaba.fastjson.serializer.SerializerFeature;
+   import com.fasterxml.jackson.databind.JavaType;
+   import com.fasterxml.jackson.databind.type.TypeFactory;
+   import org.springframework.data.redis.serializer.RedisSerializer;
+   import org.springframework.data.redis.serializer.SerializationException;
+   
+   import java.nio.charset.Charset;
+   
+   /**
+    * Redis 使用 FastJson 序列化
+    */
+   public class FastJsonRedisSerializer<T> implements RedisSerializer<T> {
+   
+   	public static final Charset DEFAULT_CHARSET = Charset.forName("UTF-8");
+   
+   	private Class<T> clazz;
+   
+   	static {
+   		ParserConfig.getGlobalInstance().setAutoTypeSupport(true);
+   	}
+   
+   	public FastJsonRedisSerializer(Class<T> clazz) {
+   		super();
+   		this.clazz = clazz;
+   	}
+   
+   	@Override
+   	public byte[] serialize(T t) throws SerializationException {
+   		if (t == null) {
+   			return new byte[0];
+   		}
+   		return JSON.toJSONString(t, SerializerFeature.WriteClassName).getBytes(DEFAULT_CHARSET);
+   	}
+   
+   	@Override
+   	public T deserialize(byte[] bytes) throws SerializationException {
+   		if (bytes == null || bytes.length <= 0) {
+   			return null;
+   		}
+   		String str = new String(bytes, DEFAULT_CHARSET);
+   		return (T) JSON.parseObject(str, clazz);
+   	}
+   
+   	protected JavaType getJavaType(Class<?> clazz) {
+   		return TypeFactory.defaultInstance().constructArrayType(clazz);
+   	}
+   }
+   ```
+
+   ```java
+   package com.example.config;
+   
+   import com.alibaba.fastjson.parser.ParserConfig;
+   import com.example.utils.FastJsonRedisSerializer;
+   import org.springframework.context.annotation.Bean;
+   import org.springframework.context.annotation.Configuration;
+   import org.springframework.data.redis.connection.RedisConnectionFactory;
+   import org.springframework.data.redis.core.RedisTemplate;
+   import org.springframework.data.redis.serializer.StringRedisSerializer;
+   
+   @Configuration
+   public class RedisConfig {
+   
+   	/**
+   	 * 重寫Redis序列化方式，使用Json方式:
+   	 * 當我們的數據存儲到Redis的時候，我們的鍵（key）和值（value）都是通過Spring提供的Serializer序列化到數據庫的。RedisTemplate默認使用的是JdkSerializationRedisSerializer，StringRedisTemplate默認使用的是StringRedisSerializer。
+   	 * Spring Data JPA為我們提供了下面的Serializer：
+   	 * GenericToStringSerializer、Jackson2JsonRedisSerializer、JacksonJsonRedisSerializer、JdkSerializationRedisSerializer、OxmSerializer、StringRedisSerializer。
+   	 * 在此我們將自己配置RedisTemplate並定義Serializer。
+   	 *
+   	 * @param redisConnectionFactory
+   	 * @return
+   	 */
+   	@Bean
+   	public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+   		RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+   		redisTemplate.setConnectionFactory(redisConnectionFactory);
+   
+   		FastJsonRedisSerializer<Object> fastJsonRedisSerializer = new FastJsonRedisSerializer<>(Object.class);
+   		// 全局開啟AutoType，不建議使用
+   		// ParserConfig.getGlobalInstance().setAutoTypeSupport(true);
+   		// 建議使用這種方式，小範圍指定白名單
+   		ParserConfig.getGlobalInstance().addAccept("com.example.");
+   
+   		// 設置值（value）的序列化採用FastJsonRedisSerializer。
+   		redisTemplate.setValueSerializer(fastJsonRedisSerializer);
+   		redisTemplate.setHashValueSerializer(fastJsonRedisSerializer);
+   		// 設置鍵（key）的序列化採用StringRedisSerializer。
+   		redisTemplate.setKeySerializer(new StringRedisSerializer());
+   		redisTemplate.setHashKeySerializer(new StringRedisSerializer());
+   
+   		redisTemplate.afterPropertiesSet();
+   		return redisTemplate;
+   	}
+   }
+   ```
+
+   ref: https://www.jianshu.com/p/23f2c4c92093
+
+3. 響應類
+
+   ```java
+   package com.example.domain;
+   
+   import com.fasterxml.jackson.annotation.JsonInclude;
+   import lombok.AllArgsConstructor;
+   import lombok.Data;
+   import lombok.NoArgsConstructor;
+   
+   @Data
+   @NoArgsConstructor
+   @AllArgsConstructor
+   @JsonInclude(JsonInclude.Include.NON_NULL)
+   public class ResponseResult<T> {
+   	/** 狀態碼。 */
+   	private Integer code;
+   	/** 提示信息。 如果有錯誤，前端可以獲取該字段進行提示 */
+   	private String msg;
+   	/** 查詢到的結果數據。 */
+   	private T data;
+   
+   	public ResponseResult(Integer code, String msg) {
+   		this.code = code;
+   		this.msg = msg;
+   	}
+   
+   	public ResponseResult(Integer code, T data) {
+   		this.code = code;
+   		this.data = data;
+   	}
+   }
+   ```
+
+   
+
+4. 工具類
+
+   ```java
+   package com.example.util;
+   
+   import io.jsonwebtoken.Claims;
+   import io.jsonwebtoken.JwtBuilder;
+   import io.jsonwebtoken.Jwts;
+   import io.jsonwebtoken.SignatureAlgorithm;
+   
+   import javax.crypto.SecretKey;
+   import javax.crypto.spec.SecretKeySpec;
+   import java.util.Base64;
+   import java.util.Date;
+   import java.util.UUID;
+   
+   /**
+    * JWT 工具類。
+    */
+   public class JwtUtils {
+   	/** 有效期: 60 * 60 * 1000 = 1 小時 */
+   	public static final Long JWT_TTL = 60 * 60 * 1000L;
+   	/** 設置密鑰明文 */
+   	public static final String JWT_KEY = "sangeng";
+   
+   	public static String getUUID() {
+   		return UUID.randomUUID().toString().replaceAll("-", "");
+   	}
+   
+   	/**
+   	 * 生成 JWT
+   	 * @param subject token 中要存放的數據 (JSON 格式)
+   	 * @return
+   	 */
+   	public static String createJWT(String subject) {
+   		// 設置過期時間
+   		JwtBuilder builder = getJwtBuilder(subject, null, getUUID());
+   		return builder.compact();
+   	}
+   
+   	/**
+   	 * 生成 JWT
+   	 * @param subject token 中要存放的數據 (JSON 格式)
+   	 * @param ttlMillis token 超過時間
+   	 * @return
+   	 */
+   	public static String createJWT(String subject, Long ttlMillis) {
+   		// 設置過期時間
+   		JwtBuilder builder = getJwtBuilder(subject, ttlMillis, getUUID());
+   		return builder.compact();
+   	}
+   
+   	public static String createJWT(String id, String subject, Long ttlMillis) {
+   		// 設置過期時間
+   		JwtBuilder builder = getJwtBuilder(subject, ttlMillis, id);
+   		return builder.compact();
+   	}
+   
+   	private static JwtBuilder getJwtBuilder(String subject, Long ttlMillis, String uuid) {
+   		SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS256;
+   		SecretKey secretKey = generateSecretKey();
+   		long nowMillis = System.currentTimeMillis();
+   		Date now = new Date(nowMillis);
+   
+   		if (ttlMillis == null) {
+   			ttlMillis = JWT_TTL;
+   		}
+   
+   		long expMillis = nowMillis + ttlMillis;
+   		Date expDate = new Date(expMillis);
+   
+   		return Jwts.builder()
+   				.setId(uuid)
+   				.setSubject(subject)
+   				.setIssuer("sg")
+   				.setIssuedAt(now)
+   				.signWith(signatureAlgorithm, secretKey)
+   				.setExpiration(expDate);
+   	}
+   
+   	/**
+   	 * 生成加密後的密鑰 SecretKey
+   	 */
+   	private static SecretKey generateSecretKey() {
+   		byte[] encodeKey = Base64.getDecoder().decode(JWT_KEY);
+   		SecretKey key = new SecretKeySpec(encodeKey, 0, encodeKey.length, "AES");
+   		return key;
+   	}
+   
+   	/**
+   	 * 解析 JWT
+   	 * @param jwt
+   	 */
+   	public static Claims parseJWT(String jwt) {
+   		SecretKey secretKey = generateSecretKey();
+   		return Jwts.parser().setSigningKey(secretKey)
+   				.parseClaimsJws(jwt)
+   				.getBody();
+   	}
+   }
+   ```
+
+   ```java
+   package com.example.helper;
+   
+   import org.springframework.beans.factory.annotation.Autowired;
+   import org.springframework.data.redis.core.BoundSetOperations;
+   import org.springframework.data.redis.core.HashOperations;
+   import org.springframework.data.redis.core.RedisTemplate;
+   import org.springframework.data.redis.core.ValueOperations;
+   import org.springframework.stereotype.Component;
+   
+   import java.util.*;
+   import java.util.concurrent.TimeUnit;
+   
+   @Component
+   public class RedisCache {
+   	@Autowired
+   	private RedisTemplate redisTemplate;
+   
+   	/**
+   	 * 緩存基本的對象。 (Integer、String、實體類等)
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @param value 緩存的值
+   	 */
+   	public <T> void setCacheObject(final String key, final T value) {
+   		redisTemplate.opsForValue().set(key, value);
+   	}
+   
+   	/**
+   	 * 緩存基本的對象。 (Integer、String、實體類等)
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @param value 緩存的值
+   	 * @param timeout 時間
+   	 * @param timeUnit 時間顆粒度
+   	 */
+   	public <T> void setCacheObject(final String key, final T value,
+   								   final Integer timeout, final TimeUnit timeUnit) {
+   		redisTemplate.opsForValue().set(key, value, timeout, timeUnit);
+   	}
+   
+   	/**
+   	 * 設置有效時間
+   	 * @param key Redis鍵
+   	 * @param timeout 超時時間
+   	 * @param timeUnit 時間單位
+   	 * @return ture=設置成功；false=設置失敗
+   	 */
+   	public boolean expire(final String key, final long timeout, final TimeUnit timeUnit) {
+   		return redisTemplate.expire(key, timeout, timeUnit);
+   	}
+   
+   	/**
+   	 * 獲得緩存的基本對象
+   	 *
+   	 * @param key 緩存鍵值
+   	 * @return 緩存鍵值對應的數據
+   	 */
+   	public <T> T getCacheObject(final String key) {
+   		ValueOperations<String, T> operations = redisTemplate.opsForValue();
+   		return operations.get(key);
+   	}
+   
+   	/**
+   	 * 刪除單個對象
+   	 *
+   	 * @param key
+   	 */
+   	public boolean deleteObject(final String key) {
+   		return redisTemplate.delete(key);
+   	}
+   
+   	/**
+   	 * 刪除集合對象
+   	 *
+   	 * @param collection 多個對象
+   	 * @return
+   	 */
+   	public long deleteObject(final Collection collection) {
+   		return redisTemplate.delete(collection);
+   	}
+   
+   	/**
+   	 * 緩存 List 數據
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @param dataList 待緩存的 List 數據
+   	 * @return 緩存的對象
+   	 */
+   	public <T> long setCacheList(final String key, final List<T> dataList) {
+   		Long count = redisTemplate.opsForList().rightPushAll(key, dataList);
+   		return count == null ? 0 : count;
+   	}
+   
+   	/**
+   	 * 獲得緩存 List 對象
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @return 緩存鍵值對應的數據
+   	 */
+   	public <T> List<T> getCacheList(final String key) {
+   		return redisTemplate.opsForList().range(key, 0, -1);
+   	}
+   
+   	/**
+   	 * 緩存 List 數據
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @param dataSet 待緩存的數據
+   	 * @return 緩存數據的對象
+   	 */
+   	public <T> BoundSetOperations<String, T> setCacheList(final String key, final Set<T> dataSet) {
+   		BoundSetOperations operations = redisTemplate.boundSetOps(key);
+   
+   		Iterator<T> it = dataSet.iterator();
+   		while (it.hasNext()) {
+   			operations.add(it.next());
+   		}
+   
+   		return operations;
+   	}
+   
+   	/**
+   	 * 獲得緩存 Set
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @return 緩存鍵值對應的數據
+   	 */
+   	public <T> Set<T> getCacheSet(final String key) {
+   		return redisTemplate.opsForSet().members(key);
+   	}
+   
+   	/**
+   	 * 緩存 Map
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @param dataMap 待緩存的 Map 數據
+   	 * @return 緩存的對象
+   	 */
+   	public <T> void setCacheMap(final String key, final Map<String, T> dataMap) {
+   		if (dataMap != null) {
+   			redisTemplate.opsForHash().putAll(key, dataMap);
+   		}
+   	}
+   
+   	/**
+   	 * 獲得緩存 Map
+   	 *
+   	 * @param key 緩存的鍵值
+   	 * @return 緩存鍵值對應的數據
+   	 */
+   	public <T> Map<String, T> getCacheMap(final String key) {
+   		return redisTemplate.opsForHash().entries(key);
+   	}
+   
+   	/**
+   	 * 往 Hash 中存入數據
+   	 *
+   	 * @param key Redis鍵
+   	 * @param hKey Hash鍵
+   	 * @return 緩存的對象
+   	 */
+   	public <T> void setCacheMap(final String key, final String hKey, final T value) {
+   		redisTemplate.opsForHash().put(key, hKey, value);
+   	}
+   
+   	/**
+   	 * 獲取 Hash 中的數據
+   	 *
+   	 * @param key Redis鍵
+   	 * @param hKey Hash鍵
+   	 * @return Hash 中的對象
+   	 */
+   	public <T> T getCacheMap(final String key, final String hKey) {
+   		HashOperations<String, String, T> operations = redisTemplate.opsForHash();
+   		return operations.get(key, hKey);
+   	}
+   
+   	/**
+   	 * 刪除 Hash 中的數據
+   	 *
+   	 * @param key Redis鍵
+   	 * @param hKey Hash鍵
+   	 */
+   	public void deleteCacheMapValue(final String key, final String hKey) {
+   		HashOperations<String, String, ?> operations = redisTemplate.opsForHash();
+   		operations.delete(key, hKey);
+   	}
+   
+   	/**
+   	 * 獲得多個 Hash 中的數據
+   	 *
+   	 * @param key Redis鍵
+   	 * @param hKeys Hash鍵集合
+   	 * @return Hash對象集合
+   	 */
+   	public <T> List<T> getCacheMap(final String key, final Collection<Objects> hKeys) {
+   		return redisTemplate.opsForHash().multiGet(key, hKeys);
+   	}
+   
+   	/**
+   	 * 獲取緩存的基本對象列表
+   	 *
+   	 * @param pattern 字串前綴
+   	 * @return 對象列表
+   	 */
+   	public Collection<String> keys(final String pattern) {
+   		return redisTemplate.keys(pattern);
+   	}
+   }
+   ```
+
+   ```java
+   package com.example.util;
+   
+   import javax.servlet.http.HttpServletResponse;
+   import java.io.IOException;
+   
+   public class WebUtils {
+   
+   	/**
+   	 * 將字串渲染到客戶端。 TODO: 怪
+   	 * @param response 渲染對象
+   	 * @param string 待渲染的字串
+   	 *
+   	 * @return null
+   	 */
+   	public static String renderString(HttpServletResponse response, String string) {
+   
+   		try {
+   			response.setStatus(200);
+   			response.setContentType("application/json");
+   			response.setCharacterEncoding("utf-8");
+   			response.getWriter().print(string);
+   		} catch (IOException e) {
+   			e.printStackTrace();
+   		}
+   
+   		return null;
+   	}
+   }
+   ```
+
+   
+
+5. 實體類
+
+   ```java
+   package com.example.domain;
+   
+   import lombok.AllArgsConstructor;
+   import lombok.Data;
+   import lombok.NoArgsConstructor;
+   
+   import java.io.Serializable;
+   import java.util.Date;
+   
+   @Data
+   @NoArgsConstructor
+   @AllArgsConstructor
+   public class User implements Serializable {
+   
+   	/**
+   	 * 主鍵
+   	 */
+   	private Long id;
+   
+   	/**
+   	 * 用戶名
+   	 */
+   	private String userName;
+   
+   	/**
+   	 * 暱稱
+   	 */
+   	private String nickName;
+   
+   	/**
+   	 * 密碼
+   	 */
+   	private String password;
+   
+   	/**
+   	 * 帳號狀態 (0: 正常、1: 停用)
+   	 */
+   	private String status;
+   
+   	/**
+   	 * 信箱
+   	 */
+   	private String email;
+   
+   	/**
+   	 * 手機
+   	 */
+   	private String phoneNumber;
+   
+   	/**
+   	 * 性別 (0:男、1:女、2:未知)
+   	 */
+   	private String sex;
+   
+   	/**
+   	 * 頭像
+   	 */
+   	private String avatar;
+   
+   	/**
+   	 * 用戶類型 (0:管理員、1:普通用戶)
+   	 */
+   	private String userType;
+   
+   	/**
+   	 * 創建人的用戶 ID
+   	 */
+   	private Long createBy;
+   
+   	/**
+   	 * 創建時間
+   	 */
+   	private Date createTime;
+   
+   	/**
+   	 * 更新人
+   	 */
+   	private Long updateBy;
+   
+   	/**
+   	 * 更新時間
+   	 */
+   	private Date updateTime;
+   
+   	/**
+   	 * 刪除標誌 (0:未刪除；1:已刪除)
+   	 */
+   	private Integer delFlag;
+   }
+   ```
+
+   
+
+#### 2.3.3、實現
+
+##### 2.3.3.1、數據庫校驗用戶
+
+
+
+**準備工作**
+
+創建用戶表
+
+```sql
+CREATE SCHEMA `spring-security_sangeng` DEFAULT CHARACTER SET utf8mb4;
+
+--
+-- USER
+--
+CREATE TABLE sys_user (
+	id BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '主鍵',
+	user_name VARCHAR(64) NOT NULL COMMENT '名稱',
+	nick_name VARCHAR(64) NOT NULL COMMENT '暱稱',
+	password VARCHAR(64) NOT NULL COMMENT '密碼',
+	status CHAR(1) NOT NULL DEFAULT '0' COMMENT '帳號狀態 (0:正常、1:停用)',
+	email VARCHAR(64) COMMENT '信箱',
+	phone_number VARCHAR(32) COMMENT '手機',
+	sex CHAR(1) COMMENT '性別 (0:男、1:女、2:未知)',
+	avatar VARCHAR(128) NOT NULL COMMENT '頭像',
+	user_type CHAR(1) NOT NULL DEFAULT '1' NOT NULL COMMENT '用戶類型 (0:管理員、1:普通用戶)',
+	create_by BIGINT(20) NOT NULL COMMENT '創建人的用戶 ID',
+	create_time DATETIME NOT NULL COMMENT '創建時間',
+	update_by BIGINT(20) NOT NULL COMMENT '更新人',
+	update_time DATETIME NOT NULL COMMENT '更新時間',
+	del_flag INT(11) DEFAULT '0' COMMENT '刪除標誌 (0:未刪除、1:已刪除)',
+
+	PRIMARY KEY (id)
+)
+COMMENT = '用戶表';
+```
+
+引入依賴(mybatis-plus、mysql驅動)
+
+```xml
+        <!-- https://mvnrepository.com/artifact/com.baomidou/mybatis-plus-boot-starter -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+            <version>3.5.1</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/mysql/mysql-connector-java -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+```
+
+配置數據庫信息 (application.yml)
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/spring-security_sangeng?characterEncoding=utf-8&serverTimezone=UTC
+    username: root
+    password: P@ssw0rd
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+定義 Mapper 接口
+
+```java
+package com.example.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.domain.User;
+
+public interface UserMapper extends BaseMapper<User> {
+	
+}
+```
+
+修改 User 實體類 (類名上加 `@TableName("sys_user")`，id 字段上加`@TableId`)
+
+```java
+...
+
+@TableName("sys_user")
+public class User implements Serializable {
+
+	/**
+	 * 主鍵
+	 */
+	@TableId
+	private Long id;
+    
+...
+```
+
+配置 Mapper 掃描 (加上 `@MapperScan("com.example.mapper")`)
+
+```java
+package com.example;
+
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+/**
+ * SpringBoot 啟動類。
+ */
+@MapperScan("com.example.mapper")
+@SpringBootApplication
+public class BootApplication {
+	public static void main(String[] args) {
+		SpringApplication.run(BootApplication.class, args);
+	}
+}
+```
+
+添加 Junit 依賴
+
+```xml
+        <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+```
+
+測試 MP 能否正常使用
+
+```java
+package com.example;
+
+import com.example.domain.User;
+import com.example.mapper.UserMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.util.List;
+
+@SpringBootTest
+public class MapperTest {
+
+	@Autowired
+	private UserMapper userMapper;
+
+	@Test
+	public void testUserMapper() {
+		List<User> users = userMapper.selectList(null);
+		System.out.println(users);
+	}
+}
+```
+
