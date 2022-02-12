@@ -718,7 +718,7 @@
 
 
 
-**準備工作**
+###### 準備工作
 
 創建用戶表
 
@@ -866,3 +866,119 @@ public class MapperTest {
 }
 ```
 
+
+
+###### 核心代碼實現
+
+
+
+```java
+package com.example.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.domain.LoginUser;
+import com.example.domain.User;
+import com.example.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import java.util.Objects;
+
+@Service
+public class UserDetailServiceImpl implements UserDetailsService {
+	@Autowired
+	private UserMapper userMapper;
+
+	@Override
+	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+		// 查詢用戶信息
+		LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+		queryWrapper.eq(User::getUserName, username);
+		User user = userMapper.selectOne(queryWrapper);
+
+		// 如果沒有查詢到用戶，就拋出異常
+		if (Objects.isNull(user)) {
+			// ExceptionTranslationFilter 會捕獲到例外，即便沒有我們也可以自定義全局異常處理
+			throw new RuntimeException("用戶名或密碼錯誤");
+		}
+
+		// TODO: 查詢對應的權限信息 (屬於授權部分，後段課程說明)
+
+		// 把數據封裝成 UserDetails 返回 (UserDetails 是接口，需要對應的實現類)
+		return new LoginUser(user);
+	}
+}
+```
+
+
+
+```java
+package com.example.domain;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class LoginUser implements UserDetails {
+
+	private User user;
+
+	@Override
+	public Collection<? extends GrantedAuthority> getAuthorities() {
+		// 目前尚不需權限信息
+		return null;
+	}
+
+	@Override
+	public String getPassword() {
+		return user.getPassword();
+	}
+
+	@Override
+	public String getUsername() {
+		return user.getUserName();
+	}
+
+	// TODO: 下面都先暫設成 true 避免相關認證失敗無法登入
+
+	@Override
+	public boolean isAccountNonExpired() {
+		return true;
+	}
+
+	@Override
+	public boolean isAccountNonLocked() {
+		return true;
+	}
+
+	@Override
+	public boolean isCredentialsNonExpired() {
+		return true;
+	}
+
+	@Override
+	public boolean isEnabled() {
+		return true;
+	}
+}
+```
+
+
+
+```
+java.lang.IllegalArgumentException: There is no PasswordEncoder mapped for the id "null"
+```
+
+若密碼為明文儲存，需要在實際密碼前帶有`{noop}`
+
+例如 原密碼欄位 `1234` -> 改成 `{noop}1234`
