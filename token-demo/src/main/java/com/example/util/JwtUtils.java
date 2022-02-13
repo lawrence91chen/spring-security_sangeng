@@ -37,7 +37,7 @@ public class JwtUtils {
 
 	/**
 	 * 生成 JWT
-	 * @param subject token 中要存放的數據 (JSON 格式)
+	 * @param subject token 中要存放的數據 (JSON 格式)  (把對象變成 JSON 格式字串後傳入)
 	 * @param ttlMillis token 超過時間
 	 * @return
 	 */
@@ -90,6 +90,12 @@ public class JwtUtils {
 	 */
 	public static Claims parseJWT(String jwt) {
 		SecretKey secretKey = generateSecretKey();
+		// parseClaimsJws throws
+		// io.jsonwebtoken.UnsupportedJwtException – if the claimsJws argument does not represent an Claims JWS
+		// io.jsonwebtoken.MalformedJwtException – if the claimsJws string is not a valid JWS
+		// io.jsonwebtoken.SignatureException – if the claimsJws JWS signature validation fails
+		// io.jsonwebtoken.ExpiredJwtException – if the specified JWT is a Claims JWT and the Claims has an expiration time before the time this method is invoked.
+		// IllegalArgumentException – if the claimsJws string is null or empty or only whitespace
 		return Jwts.parser().setSigningKey(secretKey)
 				.parseClaimsJws(jwt)
 				.getBody();
