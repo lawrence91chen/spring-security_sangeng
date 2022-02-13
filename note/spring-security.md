@@ -1518,3 +1518,295 @@ public class LoginServiceImpl implements LoginService {
 }
 ```
 
+
+
+## 3、授權
+
+### 3.0、授權系統的作用
+
+**不同的用戶可以使用不同的功能**。 這就是權限系統要去實現的效果
+
+不能只依賴前端顯示與否，後端也要進行用戶權限的判斷，有權限才能進行相應的操作
+
+### 3.1、授權基本流程
+
+SpringSecurity 使用默認的 FilterSecurityInterceptor 來進行權限校驗。
+
+FilterSecurityInterceptor 會從 SecurityContextHolder 獲取其中的 Authentication，然後取得其中的權限信息以確認當前用戶是否擁有訪問當前資源所需的權限。
+
+所以我們需要
+
+- 把當前登入用戶的權限也存入 Authentication，
+- 然後設置資源所需要的權限即可
+
+### 3.2、授權實現
+
+#### 3.2.1 限制訪問資源所須權限
+
+SpringSecurity 提供基於註解與基於配置(一般多用在處理靜態資源)兩種方式
+
+前後端分離下主要多使用 基於註解 的方式，指定訪問對應資源所需要的權限
+
+
+
+開啟相關配置
+
+```java
+@EnableGlobalMethodSecurity(prePostEnabled = true)
+```
+
+使用對應的註解 @PreAuthorize 
+
+> (SpringSecurity 有好幾種註解，但大部分情況下都用這個)
+>
+> 顧名思義 表示 在訪問該目標之前進行授權認證，確認是否能夠訪問
+
+```java
+package com.example.controller;
+
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class HelloController {
+
+	// SpringSecurity 運行時將屬性值視為表達式去調用 SecurityExpressionRoot#hasAuthority (返回值為 boolean)
+	// 判斷用戶是否具有 test 權限，有就返回 true
+	// 實務上可以自行定義實現類去實作權限校驗相關方法，這樣會更加靈活
+	@PreAuthorize("hasAuthority('test')")
+	@GetMapping("/hello")
+	public String hello() {
+		return "hello";
+	}
+}
+```
+
+
+
+#### 3.2.2、封裝權限信息
+
+
+
+```java
+package com.example.domain;
+
+import com.alibaba.fastjson.annotation.JSONField;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Data
+@NoArgsConstructor
+public class LoginUser implements UserDetails {
+
+	private User user;
+
+	/**
+	 * 存儲權限信息
+	 */
+	private List<String> permissions;
+
+	public LoginUser(User user, List<String> permissions) {
+		this.user = user;
+		this.permissions = permissions;
+	}
+
+	/**
+	 * 存儲 SpringSecurity 所需要權限信息的集合
+	 */
+	@JSONField(serialize = false) // 不需要序列化到 redis (且基於安全問題 SimpleGrantedAuthority 序列化到 redis 也會報錯)
+	List<GrantedAuthority> authorities;
+
+	@Override
+	public Collection<? extends GrantedAuthority> getAuthorities() {
+		// 把 permissions 中 String 類型的權限信息封裝成 SimpleGrantedAuthority 對象 (GrantedAuthority 的實現類)
+
+		if (authorities != null) {
+			// 小優化，不希望每次調用都重新遍歷 permissions
+			return authorities;
+		}
+
+		// 傳統寫法
+//		authorities = new ArrayList<>();
+//		for (String permission : permissions) {
+//			SimpleGrantedAuthority authority = new SimpleGrantedAuthority(permission);
+//			authorities.add(authority);
+//		}
+
+		// 函數式編程寫法(目前較主流)
+		authorities = permissions.stream()
+				.map(SimpleGrantedAuthority::new)
+				.collect(Collectors.toList());
+
+		return authorities;
+	}
+
+	@Override
+	public String getPassword() {
+		return user.getPassword();
+	}
+
+	@Override
+	public String getUsername() {
+		return user.getUserName();
+	}
+
+	// TODO: 下面都先暫設成 true 避免相關認證失敗無法登入
+
+	@Override
+	public boolean isAccountNonExpired() {
+		return true;
+	}
+
+	@Override
+	public boolean isAccountNonLocked() {
+		return true;
+	}
+
+	@Override
+	public boolean isCredentialsNonExpired() {
+		return true;
+	}
+
+	@Override
+	public boolean isEnabled() {
+		return true;
+	}
+}
+```
+
+
+
+```java
+package com.example.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.domain.LoginUser;
+import com.example.domain.User;
+import com.example.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+
+@Service
+public class UserDetailServiceImpl implements UserDetailsService {
+	@Autowired
+	private UserMapper userMapper;
+
+	@Override
+	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+		// 查詢用戶信息
+		LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+		queryWrapper.eq(User::getUserName, username);
+		User user = userMapper.selectOne(queryWrapper);
+
+		// 如果沒有查詢到用戶，就拋出異常
+		if (Objects.isNull(user)) {
+			// ExceptionTranslationFilter 會捕獲到例外，即便沒有我們也可以自定義全局異常處理
+			throw new RuntimeException("用戶名或密碼錯誤");
+		}
+
+		// TODO: 查詢對應的權限信息 (屬於授權部分，後段課程說明)
+		List<String> permissions = new ArrayList<>(Arrays.asList("test", "admin"));
+		// 把數據封裝成 UserDetails 返回 (UserDetails 是接口，需要對應的實現類)
+		return new LoginUser(user, permissions);
+	}
+}
+```
+
+
+
+```java
+package com.example.filter;
+
+import com.example.domain.LoginUser;
+import com.example.helper.RedisCache;
+import com.example.util.JwtUtils;
+import io.jsonwebtoken.Claims;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import javax.servlet.FilterChain;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Objects;
+
+// Servlet 原生的 Filter 有可能導致一個請求將過濾器調用多次，
+// 使用 Spring 提供的實現類 OncePerRequestFilter 可避免此問題 (保證一個請求只會經過這個過濾器一次)
+@Component // 注入到 Spring 容器 (TODO: 可不可以改用 Interceptor ? 看起來不行，因為還要配置到 filter chain)
+public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
+
+	@Autowired
+	private RedisCache redisCache;
+
+	@Override
+	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+		// 獲取 token
+		String token = request.getHeader("token");
+		if (!StringUtils.hasText(token)) {
+			// 放行 (呼叫 doFilter 方法 -> 放行請求)
+			// 連 token 都沒有的話談何解析? 所以放行，讓後面的過濾器去判斷用戶的認證狀態。認證不符自然也就會拋出異常
+			filterChain.doFilter(request, response);
+			// 如果不 return，filter chain 響應回來的時候就會執行到下方不須執行的 code
+			return;
+		}
+
+		// 解析 token
+		String userId;
+		try {
+			Claims claims = JwtUtils.parseJWT(token);
+			userId = claims.getSubject();
+		} catch (Exception e) {
+			e.printStackTrace();
+			throw new RuntimeException("token 非法");
+		}
+
+		// 從 redis 中獲取(完整)用戶信息
+		String redisKey = "login:" + userId;
+		LoginUser loginUser = redisCache.getCacheObject(redisKey); // 方法泛型會自動推測為 LoginUser 型別
+		// 有可能 redis 中不存在用戶信息
+		if (Objects.isNull(loginUser)) {
+			// 因為登入接口已經把用戶信息存到 redis 中了，所以只有當用戶退出登入時才會讓 Cache 失效(找不到)
+			// 因此這裡取不到應該拋出用戶未登入異常
+			throw new RuntimeException("用戶未登入");
+		}
+
+		// 存入 SecurityContextHolder (因為後面的 Filter 都是從 SecurityContextHolder 取得用戶的認證狀態)
+		SecurityContext context = SecurityContextHolder.getContext();
+		// UsernamePasswordAuthenticationToken 構造函數有兩種， 參數x2 和 參數x3
+		// 參數x3: 才會執行 super.setAuthenticated(true);
+		// 因為現在已經可從 redis 中獲取到對應的對象，說明該用戶已認證過。
+		// 所以將 authenticated 設置為 true 才能讓後面的過濾器知道已認證過
+		// 註: 第三個參數 authorities 是權限信息 (目前還沒有) TODO: 獲取權限信息封裝到 Authentication 中
+		UsernamePasswordAuthenticationToken authenticationToken =
+				new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities());
+		context.setAuthentication(authenticationToken);
+
+		// 放行
+		filterChain.doFilter(request, response);
+	}
+}
+```
+

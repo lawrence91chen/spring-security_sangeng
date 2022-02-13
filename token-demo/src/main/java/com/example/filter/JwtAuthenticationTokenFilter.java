@@ -67,7 +67,7 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
 		// 所以將 authenticated 設置為 true 才能讓後面的過濾器知道已認證過
 		// 註: 第三個參數 authorities 是權限信息 (目前還沒有) TODO: 獲取權限信息封裝到 Authentication 中
 		UsernamePasswordAuthenticationToken authenticationToken =
-				new UsernamePasswordAuthenticationToken(loginUser, null, null);
+				new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities());
 		context.setAuthentication(authenticationToken);
 
 		// 放行
