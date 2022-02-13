@@ -1,4 +1,4 @@
-package com.example.service;
+package com.example.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.domain.LoginUser;

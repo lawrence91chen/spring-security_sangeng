@@ -1028,3 +1028,195 @@ TODO: DB 存 {noop}1234，登入頁密碼輸 1234 顯示 憑證錯誤
 2022-02-13 00:48:08.714  WARN 2680 --- [nio-8080-exec-2] o.s.s.c.bcrypt.BCryptPasswordEncoder     : Encoded password does not look like BCrypt
 ```
 
+
+
+##### 2.3.3.3、登入接口
+
+必須讓 Spring Security **放行**登入接口
+
+將 AuthenticationManager 注入容器，使用 authenticate 方法進行用戶認證
+
+認證成功後生成 JWT 放到 response 後返回前端
+
+將用戶信息存入 redis (以用戶 id 作為 key)
+
+
+
+```java
+package com.example.controller;
+
+import com.example.domain.ResponseResult;
+import com.example.domain.User;
+import com.example.service.LoginService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class LoginController {
+
+	@Autowired
+	private LoginService loginService;
+
+	@PostMapping("/user/login")
+	public ResponseResult login(@RequestBody User user) {
+		// 登入
+		return loginService.login(user);
+	}
+}
+```
+
+
+
+```java
+package com.example.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+/**
+ * SpringSecurity 要求 SecurityConfig 這個配置類要繼承 WebSecurityConfigurerAdapter
+ * 可以重寫裡面的一些方法來實現相關的功能
+ */
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+	/**
+	 * 創建 BCryptPasswordEncoder 注入容器
+	 */
+	@Bean
+	public PasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+
+	/**
+	 * 前後端分離架構下 放行登入接口 的 配置
+	 *
+	 * @throws Exception
+	 */
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+				// 關閉 CSRF
+				.csrf().disable()
+				// 不通過 Session 獲取 SecurityContext
+				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+				.and()
+				.authorizeRequests()
+				// 對於登入接口，允許匿名訪問
+				.antMatchers("/user/login").anonymous()
+				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
+				.anyRequest().authenticated();
+	}
+
+	// IDE generate override methods, then choose `authenticationManagerBean`
+	// Idea alt + insert
+	// 透過繼承此方法並加上 @Bean 可暴露(expose) 到容器當中，就可以獲取到 AuthenticationManager 了 (其他 Class 可以 @Autowired)
+	@Bean
+	@Override
+	public AuthenticationManager authenticationManagerBean() throws Exception {
+		return super.authenticationManagerBean();
+	}
+}
+```
+
+
+
+```java
+package com.example.service;
+
+import com.example.domain.ResponseResult;
+import com.example.domain.User;
+
+public interface LoginService {
+	ResponseResult login(User user);
+}
+```
+
+
+
+```java
+package com.example.service.impl;
+
+import com.example.domain.LoginUser;
+import com.example.domain.ResponseResult;
+import com.example.domain.User;
+import com.example.helper.RedisCache;
+import com.example.service.LoginService;
+import com.example.util.JwtUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Objects;
+
+@Service
+public class LoginServiceImpl implements LoginService {
+
+	@Autowired
+	private AuthenticationManager authenticationManager;
+	@Autowired
+	private RedisCache redisCache;
+
+	@Override
+	public ResponseResult login(User user) {
+		// AuthenticationManager#authenticate 進行用戶認證
+
+		// 參數是 Authentication 接口，需要創建實現類
+		// Idea 按 ctrl + alt 找到我們要的實現類 UsernamePasswordAuthenticationToken
+		UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
+				user.getUserName(), user.getPassword()
+		);
+		// ProviderManager 會調用 UserDetailServiceImpl#loadUserByUsername 去進行用戶校驗
+		Authentication authenticate = authenticationManager.authenticate(authenticationToken);
+
+		// 如果認證沒通過，給出對應的提示
+		if (Objects.isNull(authenticate)) {
+			throw new RuntimeException("登入失敗");
+		}
+
+		// 如果認證通過了，使用 userid 生成一個 JWT。 JWT 存入 ResponseResult 返回
+		// 可使用斷點調試(debug)來查看 userid 在 Authentication 的哪一個屬性當中，再使用 getter 方法取得即可
+		LoginUser loginUser = (LoginUser) authenticate.getPrincipal();
+		Long userId = loginUser.getUser().getId();
+		String jwt = JwtUtils.createJWT(userId.toString());
+		// 將 ResponseResult#data 做成 key-value 的形式
+		HashMap<String, String> map = new HashMap<>();
+		map.put("token", jwt);
+
+		// 把完整的用戶信息存入 redis (userid 作為 key)
+		// 加上 login: 當作 key 的前綴
+		redisCache.setCacheObject("login:" + userId, loginUser);
+
+		return new ResponseResult(200, "登入成功", map);
+	}
+}
+```
+
+
+
+![image-20220213161741135](spring-security.assets/image-20220213161741135.png)
+
+
+
+P.S. 需要先安裝並啟動 redis server，否則會報連線失敗錯誤
+
+非本地預設端口(6379) 的話，要在 application.yml 配置 redis 端口號 (甚至帳號密碼等)
+
+```
+2022-02-13 16:12:34.290 ERROR 5600 --- [nio-8080-exec-1] o.a.c.c.C.[.[.[/].[dispatcherServlet]    : Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed; nested exception is org.springframework.data.redis.RedisConnectionFailureException: Unable to connect to Redis; nested exception is io.lettuce.core.RedisConnectionException: Unable to connect to localhost:6379] with root cause
+
+java.net.ConnectException: Connection refused: no further information
+```
+
