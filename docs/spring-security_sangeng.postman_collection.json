@@ -6,6 +6,40 @@
 	},
 	"item": [
 		{
+			"name": "Hello",
+			"protocolProfileBehavior": {
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json",
+						"type": "text",
+						"disabled": true
+					},
+					{
+						"key": "token",
+						"value": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIzYTAxZDllNjNlOWE0MTM5YmNhYjQ1YzgzNzk4MzlhMSIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTY0NDc1NDE4OSwiZXhwIjoxNjQ0NzU3Nzg5fQ.Jf0fEio2RHpetxJmnbIdMk4TBffg8k80zTXGBsPEhFU",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8080/hello",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"hello"
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "Login",
 			"request": {
 				"method": "POST",
@@ -35,7 +69,7 @@
 			"response": []
 		},
 		{
-			"name": "Hello",
+			"name": "Logout",
 			"protocolProfileBehavior": {
 				"disabledSystemHeaders": {}
 			},
@@ -50,19 +84,20 @@
 					},
 					{
 						"key": "token",
-						"value": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJiOWM4MjMwZjY0MjA0YjJkOGEyMzdmMDU0MmZiYzQxNSIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTY0NDc0NzQwNiwiZXhwIjoxNjQ0NzUxMDA2fQ.xSIVXglA13FNXD3Tnjm0KMJtXVFVjINnKeIrpfb8zq0",
+						"value": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIzYTAxZDllNjNlOWE0MTM5YmNhYjQ1YzgzNzk4MzlhMSIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTY0NDc1NDE4OSwiZXhwIjoxNjQ0NzU3Nzg5fQ.Jf0fEio2RHpetxJmnbIdMk4TBffg8k80zTXGBsPEhFU",
 						"type": "text"
 					}
 				],
 				"url": {
-					"raw": "http://localhost:8080/hello",
+					"raw": "http://localhost:8080/user/logout",
 					"protocol": "http",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"hello"
+						"user",
+						"logout"
 					]
 				}
 			},

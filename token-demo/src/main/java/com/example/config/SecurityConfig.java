@@ -43,8 +43,13 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 				// 不通過 Session 獲取 SecurityContext
 				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
 				.and()
+				// 配置請求認證規則
 				.authorizeRequests()
 				// 對於登入接口，允許匿名訪問
+				/**
+				 * anonymous: 匿名訪問 -> 未登入可訪問； 登入不可訪問
+				 * permitAll: 登入/未登入 接可訪問
+				 */
 				.antMatchers("/user/login").anonymous()
 				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
 				.anyRequest().authenticated();

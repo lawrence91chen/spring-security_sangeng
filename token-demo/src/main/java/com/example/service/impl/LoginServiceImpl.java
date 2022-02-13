@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -54,5 +55,22 @@ public class LoginServiceImpl implements LoginService {
 		redisCache.setCacheObject("login:" + userId, loginUser);
 
 		return new ResponseResult(200, "登入成功", map);
+	}
+
+	@Override
+	public ResponseResult logout() {
+		// 獲取 SecurityContextHolder 中的用戶 id
+		// (實際上 SecurityContextHolder 中的資料不用刪，因為 redis 已刪。
+		// JwtAuthenticationTokenFilter 發現 redis 中找不到 userid 就會未登入拋異常)
+		UsernamePasswordAuthenticationToken authentication =
+				(UsernamePasswordAuthenticationToken) SecurityContextHolder.getContext().getAuthentication();
+		LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+		// 理論上不會出現 loginUser 無值的情況，因為在前面的 filter 就會被擋下來。所以可以直接取用 loginUser
+		Long userId = loginUser.getUser().getId();
+
+		// 刪除 redis 中的值
+		redisCache.deleteObject("login:" + userId);
+
+		return new ResponseResult(200, "註銷成功");
 	}
 }
