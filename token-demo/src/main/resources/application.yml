@@ -8,3 +8,16 @@ spring:
   output:
     ansi:
       enabled: always
+
+#  mvc:
+#    log-request-details: true
+
+#  web:
+#    resources:
+#      add-mappings: false
+
+logging:
+  level:
+    '[com.example.mapper]':  DEBUG
+    web: DEBUG
+#    '[org.springframework.web.servlet.DispatcherServlet]': DEBUG

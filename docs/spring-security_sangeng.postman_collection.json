@@ -33,6 +33,40 @@
 				}
 			},
 			"response": []
+		},
+		{
+			"name": "Hello",
+			"protocolProfileBehavior": {
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json",
+						"type": "text",
+						"disabled": true
+					},
+					{
+						"key": "token",
+						"value": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJiOWM4MjMwZjY0MjA0YjJkOGEyMzdmMDU0MmZiYzQxNSIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTY0NDc0NzQwNiwiZXhwIjoxNjQ0NzUxMDA2fQ.xSIVXglA13FNXD3Tnjm0KMJtXVFVjINnKeIrpfb8zq0",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8080/hello",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"hello"
+					]
+				}
+			},
+			"response": []
 		}
 	]
 }
