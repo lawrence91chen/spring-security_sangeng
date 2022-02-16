@@ -1,6 +1,8 @@
 package com.example.config;
 
 import com.example.filter.JwtAuthenticationTokenFilter;
+import com.example.handler.AccessDeniedHandlerImpl;
+import com.example.handler.AuthenticationEntryPointImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +13,8 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
@@ -23,6 +27,12 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
 	@Autowired
 	private JwtAuthenticationTokenFilter jwtAuthenticationTokenFilter;
+
+	@Autowired
+	private AuthenticationEntryPoint authenticationEntryPoint;
+
+	@Autowired
+	private AccessDeniedHandler accessDeniedHandler;
 
 	/**
 	 * 創建 BCryptPasswordEncoder 注入容器
@@ -56,8 +66,16 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
 				.anyRequest().authenticated();
 
+		// 添加過濾器
 		// 配置 JwtAuthenticationTokenFilter 到 UsernamePasswordAuthenticationFilter 之前
 		http.addFilterBefore(jwtAuthenticationTokenFilter, UsernamePasswordAuthenticationFilter.class);
+
+		// 配置異常處理器
+		http.exceptionHandling()
+				// 配置認證失敗處理器
+				.authenticationEntryPoint(authenticationEntryPoint)
+				// 配置授權失敗處理器
+				.accessDeniedHandler(accessDeniedHandler);
 	}
 
 	// IDE generate override methods, then choose `authenticationManagerBean`

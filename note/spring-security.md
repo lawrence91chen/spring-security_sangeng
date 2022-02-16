@@ -2069,3 +2069,130 @@ public class HelloController {
 }
 ```
 
+
+
+## 4、自定義失敗處理
+
+當認證與授權發生問題時，希望返回一致的 JSON 格式 (方便 網頁前端/移動端 可以統一處理)，則需要使用到 SpringSecurity 的異常處理機制
+
+SpringSecurity 認證與授權過程中的異常會被 ExceptionTranslatioinFilter 捕獲，判別異常種類後調用對應的對象方法進行異常處理
+
+- 認證異常: 封裝成 AuthenticationException 後調用 **AuthenticationEntryPoint** 進行異常處理
+
+- 授權異常: 封裝成 AccessDeniedException 後調用 **AccessDeniedHandler** 進行異常處理
+
+若要自定義異常處理，只需要創建 AuthenticationEntryPoint、AccessDeniedHandler 的實現類對象**配置給 SpringSecurity** 即可
+
+1. 自定義實現類
+
+   ```java
+   @Component
+   public class AuthenticationEntryPointImpl implements AuthenticationEntryPoint {
+   	@Override
+   	public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) throws IOException, ServletException {
+   		// 處理異常
+   		ResponseResult<Object> result = new ResponseResult<>(HttpStatus.UNAUTHORIZED.value(), "用戶認證失敗，請重新登入");
+   		String json = JSON.toJSONString(result);
+   
+   		WebUtils.renderString(response, json);
+   	}
+   }
+   ```
+
+   
+
+   ```java
+   @Component
+   public class AccessDeniedHandlerImpl implements AccessDeniedHandler {
+   	@Override
+   	public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) throws IOException, ServletException {
+   		// 處理異常
+   		ResponseResult<Object> result = new ResponseResult<>(HttpStatus.FORBIDDEN.value(), "您的權限不足");
+   		String json = JSON.toJSONString(result);
+   
+   		WebUtils.renderString(response, json);
+   	}
+   }
+   ```
+
+   
+
+2. 配置給 SpringSecurity (可以使用 HttpSecuirty 對象的方法去配置)
+
+   ```java
+   /**
+    * SpringSecurity 要求 SecurityConfig 這個配置類要繼承 WebSecurityConfigurerAdapter
+    * 可以重寫裡面的一些方法來實現相關的功能
+    */
+   @EnableGlobalMethodSecurity(prePostEnabled = true)
+   @Configuration
+   public class SecurityConfig extends WebSecurityConfigurerAdapter {
+   
+   	@Autowired
+   	private JwtAuthenticationTokenFilter jwtAuthenticationTokenFilter;
+   
+   	@Autowired
+   	private AuthenticationEntryPoint authenticationEntryPoint;
+   
+   	@Autowired
+   	private AccessDeniedHandler accessDeniedHandler;
+   
+   	/**
+   	 * 創建 BCryptPasswordEncoder 注入容器
+   	 */
+   	@Bean
+   	public PasswordEncoder passwordEncoder() {
+   		return new BCryptPasswordEncoder();
+   	}
+   
+   	/**
+   	 * 前後端分離架構下 放行登入接口 的 配置
+   	 *
+   	 * @throws Exception
+   	 */
+   	@Override
+   	protected void configure(HttpSecurity http) throws Exception {
+   		http
+   				// 關閉 CSRF
+   				.csrf().disable()
+   				// 不通過 Session 獲取 SecurityContext
+   				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+   				.and()
+   				// 配置請求認證規則
+   				.authorizeRequests()
+   				// 對於登入接口，允許匿名訪問
+   				/**
+   				 * anonymous: 匿名訪問 -> 未登入可訪問； 登入不可訪問
+   				 * permitAll: 登入/未登入 接可訪問
+   				 */
+   				.antMatchers("/user/login").anonymous()
+   				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
+   				.anyRequest().authenticated();
+   
+   		// 添加過濾器
+   		// 配置 JwtAuthenticationTokenFilter 到 UsernamePasswordAuthenticationFilter 之前
+   		http.addFilterBefore(jwtAuthenticationTokenFilter, UsernamePasswordAuthenticationFilter.class);
+   
+   		// 配置異常處理器
+   		http.exceptionHandling()
+   				// 配置認證失敗處理器
+   				.authenticationEntryPoint(authenticationEntryPoint)
+   				// 配置授權失敗處理器
+   				.accessDeniedHandler(accessDeniedHandler);
+   	}
+   
+   	// IDE generate override methods, then choose `authenticationManagerBean`
+   	// Idea alt + insert
+   	// 透過繼承此方法並加上 @Bean 可暴露(expose) 到容器當中，就可以獲取到 AuthenticationManager 了 (其他 Class 可以 @Autowired)
+   	@Bean
+   	@Override
+   	public AuthenticationManager authenticationManagerBean() throws Exception {
+   		return super.authenticationManagerBean();
+   	}
+   }
+   ```
+
+
+
+
+
