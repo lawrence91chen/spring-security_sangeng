@@ -76,6 +76,9 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 				.authenticationEntryPoint(authenticationEntryPoint)
 				// 配置授權失敗處理器
 				.accessDeniedHandler(accessDeniedHandler);
+
+		// 允許跨域
+		http.cors();
 	}
 
 	// IDE generate override methods, then choose `authenticationManagerBean`

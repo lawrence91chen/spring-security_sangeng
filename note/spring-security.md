@@ -2194,5 +2194,78 @@ SpringSecurity 認證與授權過程中的異常會被 ExceptionTranslatioinFilt
 
 
 
+## 5、跨域
+
+> 在 Postman 中發送 HTTP 請求是不會有跨域問題的，用瀏覽器才能測出差異
+
+瀏覽器出於安全考量，使用 XMLHttpRequest 對象發起 HTTP 請求時必須遵守同源策略，否則就是跨域的 HTTP 請求，默認情況下是被禁止的。
+
+同源策略要求源相同才能正常通信，即協議、域名、端口號都完全一致。
+
+前後端分離項目中，前端項目和後端項目一般都不是同源的，所以肯定會存在跨域請求的問題。
+
+所以必須對此進行處理，才能讓前端發送跨域請求
+
+
+
+1. 先對 SpringBoot 進行配置，允許跨域請求
+
+   ```java
+   package com.example.config;
+   
+   import org.springframework.context.annotation.Configuration;
+   import org.springframework.web.servlet.config.annotation.CorsRegistry;
+   import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+   
+   @Configuration
+   public class CorsConfig implements WebMvcConfigurer {
+   	@Override
+   	public void addCorsMappings(CorsRegistry registry) {
+   		// 設置允許跨域的路徑
+   		registry.addMapping("/**")
+   				// 設置允許跨域請求的域名
+   				.allowedOriginPatterns("*")
+   				// 是否允許 cookie
+   				.allowCredentials(true)
+   				// 設置允許的請求方式
+   				.allowedMethods("GET", "POST", "DELETE", "PUT")
+   				// 設置允許的 header 屬性
+   				.allowedHeaders("*")
+   				// 跨域允許時間
+   				.maxAge(3600);
+   	}
+   }
+   ```
+
+   
+
+2. 開啟 SpringSecurity 的跨域訪問
+
+   > 由於我們的資源都會受到 SpringSecurity 的保護，所以想要跨域訪問還要讓 SpringSecurity 也允許跨域。
+
+   ```java
+   @EnableGlobalMethodSecurity(prePostEnabled = true)
+   @Configuration
+   public class SecurityConfig extends WebSecurityConfigurerAdapter {
+   	// ...
+   
+   	/**
+   	 * 前後端分離架構下 放行登入接口 的 配置
+   	 *
+   	 * @throws Exception
+   	 */
+   	@Override
+   	protected void configure(HttpSecurity http) throws Exception {
+   		// ...
+   		
+   		// 允許跨域
+   		http.cors();
+   	}
+   	// ...
+   }
+   ```
+
+   
+
 
 
