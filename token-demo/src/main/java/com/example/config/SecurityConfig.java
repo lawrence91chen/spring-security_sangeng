@@ -63,6 +63,8 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 				 * permitAll: 登入/未登入 接可訪問
 				 */
 				.antMatchers("/user/login").anonymous()
+				// 除了使用註解 @PreAuthorize 外，也可以在這邊配置
+//				.antMatchers("/testCors").hasAuthority("system:dept:list")
 				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
 				.anyRequest().authenticated();
 

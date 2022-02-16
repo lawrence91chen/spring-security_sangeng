@@ -2267,5 +2267,156 @@ SpringSecurity 認證與授權過程中的異常會被 ExceptionTranslatioinFilt
 
    
 
+## 6、遺留小問題
+
+### 其他權限校驗方法
+
+在 @PreAuthorize 中除了 hasAuthority 之外，還可以用 hasAnyAuthority, hasRole, hasAnyRole, ... 等等
+
+> 中大型項目一般會再去實作自定義方法，來實現較複雜的權限邏輯。例如 `sys:*:*` 的邏輯
+
+- hasAuthority  實際上是執行 SecurityExpressionRoot 中的 hasAuthority  ，再往內部方法持續調用到 authentication 的 getAuthories 來獲取用戶的權限列表來判斷 hasAuthority  的參數是否存在
+
+- hasAnyAuthority 可以傳多個值，只要滿足任一個權限即可訪問
+
+  ```java
+  @PreAuthorize("hasAnyAuthority('admin', 'test', 'system:dept:list')")
+  ```
+
+- hasRole 要求要有對應的角色才能訪問，它內部會把我們傳入的參數拼接上 `ROLE_` 再去比較。這種情況下權限也要帶有 `ROLE_` 這個前綴。 (使用上侷限性較大)
+
+  ```java
+  @PreAuthorize("hasRole('system:dept:list')")
+  ```
+
+- hasAnyRole 同 hasRole ，但可以傳多個值
+
+  ```java
+  @PreAuthorize("hasAnyRole('admin', 'system:dept:list')")
+  ```
+
+
+
+### 自定義權限校驗方法
+
+就像 hasAuthority ，我們只需要定義一個返回 boolean 的方法讓 SpringSecurity 知道是否符合權限
+
+```java
+package com.example.expression;
+
+import com.example.domain.LoginUser;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Component("ex") // 指定 Bean 的名稱
+public class AppSecurityExpressionRoot {
+
+	public boolean hasAuthority(String authority) {
+		System.out.println("自定義校驗方法");
+
+		// 獲取當前用戶的權限  (如果多處重複使用可以考慮封裝成方法，這邊以方便理解為主)
+		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+		LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+		List<String> permissions = loginUser.getPermissions();
+		// 判斷用戶權限集合中是否存在 authority
+		return permissions.contains(authority);
+	}
+}
+```
+
+
+
+(利用 SPEL 指定呼叫的語法)
+
+在 SPEL 表達式中使用 @ex 相當於 獲取容器中 bean 名稱為 ex 的對象，再調用這個對象的方法 hasAuthority
+
+```java
+@RestController
+public class HelloController {
+	// 使用自行定義實現類的權限校驗相關方法
+	@PreAuthorize("@ex.hasAuthority('system:dept:list')")
+	@GetMapping("/hello")
+	public String hello() {
+		return "hello";
+	}
+}
+```
+
+
+
+### 基於配置的權限控制
+
+```java
+/**
+ * SpringSecurity 要求 SecurityConfig 這個配置類要繼承 WebSecurityConfigurerAdapter
+ * 可以重寫裡面的一些方法來實現相關的功能
+ */
+@EnableGlobalMethodSecurity(prePostEnabled = true)
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    // ...
+    
+	/**
+	 * 前後端分離架構下 放行登入接口 的 配置
+	 *
+	 * @throws Exception
+	 */
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+				// 關閉 CSRF
+				.csrf().disable()
+				// 不通過 Session 獲取 SecurityContext
+				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+				.and()
+				// 配置請求認證規則
+				.authorizeRequests()
+				// 對於登入接口，允許匿名訪問
+				/**
+				 * anonymous: 匿名訪問 -> 未登入可訪問； 登入不可訪問
+				 * permitAll: 登入/未登入 接可訪問
+				 */
+				.antMatchers("/user/login").anonymous()
+				// 除了使用註解 @PreAuthorize 外，也可以在這邊配置
+				.antMatchers("/testCors").hasAuthority("system:dept:list")
+				// 除上面外的所有請求，全部都需要鑒權(authentication)認證
+				.anyRequest().authenticated();
+
+		// 添加過濾器
+		// 配置 JwtAuthenticationTokenFilter 到 UsernamePasswordAuthenticationFilter 之前
+		http.addFilterBefore(jwtAuthenticationTokenFilter, UsernamePasswordAuthenticationFilter.class);
+
+		// 配置異常處理器
+		http.exceptionHandling()
+				// 配置認證失敗處理器
+				.authenticationEntryPoint(authenticationEntryPoint)
+				// 配置授權失敗處理器
+				.accessDeniedHandler(accessDeniedHandler);
+
+		// 允許跨域
+		http.cors();
+	}
+}
+```
+
+
+
+### CSRF
+
+CSRF 是指跨站請求偽造 (Cross-site request forgery)，是 Web 常見的攻擊之一
+
+https://blog.csdn.net/freeking101/article/details/86537087
+
+SpringSecurity 去防止 CSRF 攻擊的方式是通過 csrf_token。後端會生成一個 csrf_token，前端發起請求的時候需要攜帶這個 csrf_token，後端會有過濾器進行校驗，如果沒有攜帶或是偽造的 token 就不允許訪問。
+
+我們可以發現 CSRF 攻擊依靠的是 cookie 中所攜帶的認證信息。但是在前後端分離的項目中我們的認證信息其實是 token，而 token 並不是存儲在 cookie 中，並且需要前端代碼去把 token 設置到請求頭 Header 中才可以，所以 CSRF 攻擊也就不用擔心的
+
+> 前後端分離的項目天然就是不怕 CSRF 攻擊，所以 SecurityConfig 中才直接設置 .csrf().disable()
+>
+> 且不關閉的話 SpringSecurity 過濾器還會額外校驗 csrf_token，但前端請求時基本上都沒有攜帶
+
 
 
