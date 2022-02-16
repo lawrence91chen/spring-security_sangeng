@@ -1541,7 +1541,7 @@ FilterSecurityInterceptor 會從 SecurityContextHolder 獲取其中的 Authentic
 
 ### 3.2、授權實現
 
-#### 3.2.1 限制訪問資源所須權限
+#### 3.2.1、限制訪問資源所須權限
 
 SpringSecurity 提供基於註解與基於配置(一般多用在處理靜態資源)兩種方式
 
@@ -1806,6 +1806,265 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
 
 		// 放行
 		filterChain.doFilter(request, response);
+	}
+}
+```
+
+
+
+#### 3.2.3、從數據庫查詢權限訊息
+
+
+
+##### 3.2.3.1、RBAC 權限模型
+
+
+
+##### 3.2.3.2、準備工作
+
+SQL 建表
+
+```SQL
+--
+-- MENU
+--
+CREATE TABLE sys_menu (
+	id BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '主鍵',
+	menu_name VARCHAR(64) NOT NULL COMMENT '功能名稱',
+	path VARCHAR(200) COMMENT '路由地址',
+	component VARCHAR(255) COMMENT '組件路徑',
+	visible CHAR(1) DEFAULT '0' COMMENT '狀態 (0:顯示、1:隱藏)',
+	status CHAR(1) DEFAULT '0' COMMENT '狀態 (0:正常、1:停用)',
+	perms VARCHAR(100) COMMENT '權限標示(key)',
+	icon VARCHAR(100) DEFAULT '#' COMMENT '功能圖示',
+	create_by BIGINT(20) NOT NULL COMMENT '創建人的用戶 ID',
+	create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '創建時間',
+	update_by BIGINT(20) NOT NULL COMMENT '更新人',
+	update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新時間',
+	del_flag INT(1) DEFAULT '0' COMMENT '刪除標誌 (0:未刪除、1:已刪除)',
+	remark VARCHAR(500) COMMENT '備註',
+
+	PRIMARY KEY (id)
+)
+COMMENT = '權限表';
+
+
+--
+-- ROLE
+--
+CREATE TABLE sys_role (
+	id BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '主鍵',
+	name VARCHAR(128) NOT NULL COMMENT '角色名稱',
+	role_key VARCHAR(100) COMMENT '角色權限',
+	status CHAR(1) DEFAULT '0' COMMENT '狀態 (0:正常、1:停用)',
+	create_by BIGINT(20) NOT NULL COMMENT '創建人的用戶 ID',
+	create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '創建時間',
+	update_by BIGINT(20) NOT NULL COMMENT '更新人',
+	update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新時間',
+	del_flag INT(1) DEFAULT '0' COMMENT '刪除標誌 (0:未刪除、1:已刪除)',
+	remark VARCHAR(500) COMMENT '備註',
+
+	PRIMARY KEY (id)
+)
+COMMENT = '角色表';
+
+
+--
+-- ROLE_MENU
+--
+CREATE TABLE sys_role_menu (
+	role_id BIGINT(20) NOT NULL COMMENT 'sys_role.id',
+	menu_id BIGINT(20) NOT NULL COMMENT 'sys_menu.id',
+
+	PRIMARY KEY (role_id, menu_id),
+	FOREIGN KEY (role_id) REFERENCES sys_role(id),
+    FOREIGN KEY (menu_id) REFERENCES sys_menu(id)
+)
+COMMENT = '角色權限對應表';
+
+
+--
+-- USER_ROLE
+--
+CREATE TABLE sys_user_role (
+	user_id BIGINT(20) NOT NULL COMMENT 'sys_user.id',
+	role_id BIGINT(20) NOT NULL COMMENT 'sys_role.id',
+
+	PRIMARY KEY (user_id, role_id),
+	FOREIGN KEY (user_id) REFERENCES sys_user(id),
+	FOREIGN KEY (role_id) REFERENCES sys_role(id)
+)
+COMMENT = '用戶角色對應表';
+```
+
+
+
+```SQL
+SELECT
+	DISTINCT m.perms
+FROM
+	sys_user_role ur
+LEFT JOIN
+	sys_role r ON ur.role_id = r.id
+LEFT JOIN
+	sys_role_menu rm ON ur.role_id = rm.role_id
+LEFT JOIN
+	sys_menu m ON m.id = rm.menu_id
+WHERE
+		user_id = #{userId}
+	AND r.status = 0
+	AND m.status = 0
+```
+
+
+
+```java
+package com.example.domain;
+
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.io.Serializable;
+import java.util.Date;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@TableName("sys_menu")
+public class Menu implements Serializable {
+	@TableId
+	private Long id;
+
+	private String menuName;
+
+	private String path;
+
+	private String component;
+
+	private String visible;
+
+	private String status;
+
+	private String perms;
+
+	private String icon;
+
+	private Long createBy;
+
+	private Date createTime;
+
+	private Long updateBy;
+
+	private Date updateTime;
+
+	private Integer delFlag;
+
+	private String remark;
+}
+```
+
+
+
+##### 3.2.3.3、代碼實現
+
+
+
+```java
+package com.example.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.domain.Menu;
+
+import java.util.List;
+
+public interface MenuMapper extends BaseMapper<Menu> {
+	List<String> selectPermsByUserId(Long userId);
+}
+```
+
+
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.mapper.MenuMapper">
+    <select id="selectPermsByUserId" resultType="String">
+        SELECT
+            DISTINCT m.perms
+        FROM
+            sys_user_role ur
+        LEFT JOIN
+            sys_role r ON ur.role_id = r.id
+        LEFT JOIN
+            sys_role_menu rm ON ur.role_id = rm.role_id
+        LEFT JOIN
+            sys_menu m ON m.id = rm.menu_id
+        WHERE
+                user_id = #{userId}
+            AND r.status = 0
+            AND m.status = 0
+    </select>
+</mapper>
+```
+
+
+
+```java
+package com.example.service.impl;
+
+@Service
+public class UserDetailServiceImpl implements UserDetailsService {
+	@Autowired
+	private UserMapper userMapper;
+	@Autowired
+	private MenuMapper menuMapper;
+
+	@Override
+	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+		// 查詢用戶信息
+		LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+		queryWrapper.eq(User::getUserName, username);
+		User user = userMapper.selectOne(queryWrapper);
+
+		// 如果沒有查詢到用戶，就拋出異常
+		if (Objects.isNull(user)) {
+			// ExceptionTranslationFilter 會捕獲到例外，即便沒有我們也可以自定義全局異常處理
+			throw new RuntimeException("用戶名或密碼錯誤");
+		}
+
+		// 查詢對應的權限信息 (屬於授權部分)
+//		List<String> permissions = new ArrayList<>(Arrays.asList("test", "admin"));
+		List<String> permissions = menuMapper.selectPermsByUserId(user.getId());
+		// 把數據封裝成 UserDetails 返回 (UserDetails 是接口，需要對應的實現類)
+		return new LoginUser(user, permissions);
+	}
+}
+```
+
+
+
+```java
+package com.example.controller;
+
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class HelloController {
+
+	// SpringSecurity 運行時將屬性值視為表達式去調用 SecurityExpressionRoot#hasAuthority (返回值為 boolean)
+	// 判斷用戶是否具有 test 權限，有就返回 true
+	// 實務上可以自行定義實現類去實作權限校驗相關方法，這樣會更加靈活
+	@PreAuthorize("hasAuthority('system:dept:list')")
+	@GetMapping("/hello")
+	public String hello() {
+		return "hello";
 	}
 }
 ```

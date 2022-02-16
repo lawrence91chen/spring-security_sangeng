@@ -3,6 +3,7 @@ package com.example.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.domain.LoginUser;
 import com.example.domain.User;
+import com.example.mapper.MenuMapper;
 import com.example.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,6 +20,8 @@ import java.util.Objects;
 public class UserDetailServiceImpl implements UserDetailsService {
 	@Autowired
 	private UserMapper userMapper;
+	@Autowired
+	private MenuMapper menuMapper;
 
 	@Override
 	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
@@ -33,8 +36,9 @@ public class UserDetailServiceImpl implements UserDetailsService {
 			throw new RuntimeException("用戶名或密碼錯誤");
 		}
 
-		// TODO: 查詢對應的權限信息 (屬於授權部分，後段課程說明)
-		List<String> permissions = new ArrayList<>(Arrays.asList("test", "admin"));
+		// 查詢對應的權限信息 (屬於授權部分)
+//		List<String> permissions = new ArrayList<>(Arrays.asList("test", "admin"));
+		List<String> permissions = menuMapper.selectPermsByUserId(user.getId());
 		// 把數據封裝成 UserDetails 返回 (UserDetails 是接口，需要對應的實現類)
 		return new LoginUser(user, permissions);
 	}

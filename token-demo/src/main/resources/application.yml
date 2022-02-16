@@ -16,6 +16,10 @@ spring:
 #    resources:
 #      add-mappings: false
 
+mybatis-plus:
+  設定 xml Mapper 所在位置 (預設值就是 classpath*:/mapper/**/*.xml)
+  mapper-locations: classpath*:/mapper/**/*.xml
+
 logging:
   level:
     '[com.example.mapper]':  DEBUG
