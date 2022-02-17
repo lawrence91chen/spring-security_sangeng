@@ -2468,3 +2468,54 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ```
 
+
+
+### 認證失敗處理器
+
+UsernamePasswordAuthenticationFilter 父類 AbstractAuthenticationProcessingFilter 中的 doFilter 方法。
+
+如果認證失敗就會執行 unsuccessfulAuthentication
+
+最後調用 AuthenticationFailureHandler#onAuthenticationFailure
+
+AuthenticationFailureHandler 就是認證失敗處理器，我們可以去實現它來自定義認證失敗後相應的處理
+
+
+
+```java
+@Component
+public class AppAccessFailureHandler implements AuthenticationFailureHandler {
+	@Override
+	public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response, AuthenticationException exception) throws IOException, ServletException {
+		System.out.println("執行自定義認證失敗處理器");
+	}
+}
+```
+
+
+
+```java
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Autowired
+	private AuthenticationSuccessHandler successHandler;
+
+	@Autowired
+	private AuthenticationFailureHandler failureHandler;
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http.formLogin()
+				// 配置認證成功處理器
+				.successHandler(successHandler)
+				// 配置認證失敗處理器
+				.failureHandler(failureHandler);
+		// 重寫了 configure 後，相關接口要重新配置
+		http.authorizeRequests().anyRequest().authenticated();
+	}
+}
+```
+
+
+
