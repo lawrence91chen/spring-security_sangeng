@@ -2519,3 +2519,50 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
 
 
+#### 註銷成功處理器
+
+
+
+```java
+@Component
+public class AppLogoutSuccessHandler implements LogoutSuccessHandler {
+	@Override
+	public void onLogoutSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+		System.out.println("執行自定義註銷成功處理器");
+	}
+}
+```
+
+
+
+```java
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Autowired
+	private AuthenticationSuccessHandler successHandler;
+
+	@Autowired
+	private AuthenticationFailureHandler failureHandler;
+
+	@Autowired
+	private LogoutSuccessHandler logoutSuccessHandler;
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http.formLogin()
+				// 配置認證成功處理器
+				.successHandler(successHandler)
+				// 配置認證失敗處理器
+				.failureHandler(failureHandler);
+
+		http.logout()
+				// 配置註銷成功處理器
+				.logoutSuccessHandler(logoutSuccessHandler);
+
+		// 重寫了 configure 後，相關接口要重新配置
+		http.authorizeRequests().anyRequest().authenticated();
+	}
+}
+```
+
