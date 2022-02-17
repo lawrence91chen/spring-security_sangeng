@@ -2420,3 +2420,51 @@ SpringSecurity 去防止 CSRF 攻擊的方式是通過 csrf_token。後端會生
 
 
 
+### 認證成功處理器
+
+UsernamePasswordAuthenticationFilter 父類 AbstractAuthenticationProcessingFilter 中的 doFilter 方法。
+
+如果認證成功就會執行 successfulAuthentication
+
+最後調用 AuthenticationSuccessHandler#onAuthenticationSuccess
+
+AuthenticationSuccessHandler 就是認證成功處理器，我們可以去實現它來自定義認證成功後相應的處理
+
+> **注意**
+>
+> 經過配置 JwtAuthenticationTokenFilter 後，SpringSecurity 的流程就不會有 UsernamePasswordAuthenticationFilter，
+>
+> 因為 SecurityConfig 覆寫 configure 方法後就不會調用 HttpSecurity#fromLogin (所以不會 new UsernamePasswordAuthenticationFilter()
+>
+> 所以測試這個效果用 quick-start 專案
+
+
+
+```java
+@Component
+public class AppAccessSuccessHandler implements AuthenticationSuccessHandler {
+	@Override
+	public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+		System.out.println("執行自定義認證成功處理器");
+	}
+}
+```
+
+
+
+```java
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Autowired
+	private AuthenticationSuccessHandler successHandler;
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http.formLogin().successHandler(successHandler);
+		// 重寫了 configure 後，相關接口要重新配置
+		http.authorizeRequests().anyRequest().authenticated();
+	}
+}
+```
+
