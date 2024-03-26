@@ -80,11 +80,17 @@
 
 ### 2.2、原理初探
 
-#### 2.2.1 SpringSecurity完整流程
+#### 2.2.1、SpringSecurity完整流程
 
 
 
 ![image-spring-security-filter-chain](spring-security.assets/spring-security-filter-chain.png)
+
+
+
+#### 2.2.2、認證流程詳解
+
+![image-20220217115225390](spring-security.assets/image-20220217115225390.png)
 
 
 
@@ -2519,7 +2525,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
 
 
-#### 註銷成功處理器
+### 註銷成功處理器
 
 
 
@@ -2566,3 +2572,8 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ```
 
+
+
+### 其他認證方案暢想
+
+> 基本上離不開入門案例流程圖，只是變化拓展的點不一樣
